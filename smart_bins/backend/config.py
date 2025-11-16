@@ -1,0 +1,2 @@
+USE_HARDWARE = False 
+IOT_SECRET_KEY = "12345" 

@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import SessionLocal
-from models import Bin, FillHistory,Alert
+from models import Bin, FillHistory, Alert
 from schemas import BinReadingCreate, BinReadingOut
 from auth import get_current_user, require_admin
-from datetime import datetime,timezone
-
-
+from datetime import datetime, timezone
+from config import USE_HARDWARE, IOT_SECRET_KEY
 
 router = APIRouter()
 
@@ -19,40 +18,33 @@ def get_db():
 
 @router.post("/", response_model=BinReadingOut)
 def create_reading(reading: BinReadingCreate, db: Session = Depends(get_db)):
-
+    if USE_HARDWARE:
+        if getattr(reading, "secret_key", None) != IOT_SECRET_KEY:
+            raise HTTPException(403, "Unauthorized IoT device")
     bin_data = db.query(Bin).filter(Bin.bin_id == reading.bin_id).first()
     if not bin_data:
         raise HTTPException(status_code=404, detail="Bin not found")
-
-    old_val = bin_data.current_fill_pct
     new_val = reading.fill_pct
-
     bin_data.current_fill_pct = new_val
     bin_data.status = "full" if new_val > 80 else "not full"
-
     alert = db.query(Alert).filter(Alert.bin_id == bin_data.bin_id, Alert.is_resolved == False).first()
-
     if new_val > 80:
-        if not alert:  
+        if not alert:
             new_alert = Alert(
-            bin_id=bin_data.bin_id,
-            is_resolved=False,
-            created_at=datetime.now(timezone.utc)
-        )
+                bin_id=bin_data.bin_id,
+                is_resolved=False,
+                created_at=datetime.now(timezone.utc)
+            )
             db.add(new_alert)
-
     elif new_val <= 80:
-        if alert:  
+        if alert:
             alert.is_resolved = True
             alert.resolved_at = datetime.now(timezone.utc)
-
-    new_reading = FillHistory(bin_id=reading.bin_id, fill_pct=new_val)
+    new_reading = FillHistory(bin_id=reading.bin_id, fill_pct=new_val, ts=datetime.now(timezone.utc))
     db.add(new_reading)
     db.commit()
     db.refresh(new_reading)
-
     return new_reading
-
 
 @router.get("/", response_model=list[BinReadingOut], dependencies=[Depends(require_admin)])
 def get_all_readings(db: Session = Depends(get_db)):
@@ -63,11 +55,5 @@ def get_readings_for_bin(bin_id: str, db: Session = Depends(get_db)):
     bin_exists = db.query(Bin).filter(Bin.bin_id == bin_id).first()
     if not bin_exists:
         raise HTTPException(status_code=404, detail="Bin not found")
-
-    readings = db.query(FillHistory)\
-                 .filter(FillHistory.bin_id == bin_id)\
-                 .order_by(FillHistory.ts.desc())\
-                 .all()
-
+    readings = db.query(FillHistory).filter(FillHistory.bin_id == bin_id).order_by(FillHistory.ts.desc()).all()
     return readings
-

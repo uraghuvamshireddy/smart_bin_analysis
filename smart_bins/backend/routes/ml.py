@@ -13,7 +13,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import NearestNeighbors
 
 from database import SessionLocal
-from models import Bin, FillHistory
+from models import Bin, FillHistory 
 
 router = APIRouter(prefix="/ml", tags=["ml"])
 
@@ -39,8 +39,8 @@ def load_or_train_model(bin_id: str, db: Session):
             pass
 
     rows = db.query(FillHistory).filter(FillHistory.bin_id == bin_id).order_by(FillHistory.ts.asc()).all()
-    if len(rows) < 2:
-        raise HTTPException(status_code=400, detail="Not enough data to train")
+    if len(rows) < 5:
+        raise HTTPException(status_code=400, detail="insufficient_data")
 
     t0 = rows[0].ts
     X = np.array([(r.ts - t0).total_seconds() / 3600.0 for r in rows]).reshape(-1, 1)
@@ -71,27 +71,29 @@ def predict_for_bin(bin_id: str, db: Session = Depends(get_db)):
         model = packed["model"]
         t0 = packed["t0"]
 
-        last_t = (latest.ts - t0).total_seconds() / 3600.0
         slope = float(model.coef_[0])
-        intercept = float(model.intercept_)
-
+        
         target_fill = 100.0
+        
+        hours_left = None
+        eta = None
+        status = "slow_or_no_fill"
 
-        if slope > 0.1:
-            t_at_target_fill = (target_fill - intercept) / slope
-            hours_left = max(0.0, t_at_target_fill - last_t)
-            eta = datetime.now(timezone.utc) + timedelta(hours=hours_left)
-            status = "predicting"
-        else:
-            hours_left = None
-            eta = None
-            if latest.fill_pct >= 98:
+        if latest.fill_pct >= 99:
+            hours_left = 0.0
+            eta = datetime.now(timezone.utc)
+            status = "already_full"
+        elif slope > 0.05:
+            fill_remaining = target_fill - latest.fill_pct
+            if fill_remaining > 0:
+                hours_left = fill_remaining / slope
+                eta = datetime.now(timezone.utc) + timedelta(hours=hours_left)
+                status = "predicting"
+            else: # If fill_remaining is 0 or negative, it means it's effectively full or over
                 hours_left = 0.0
                 eta = datetime.now(timezone.utc)
                 status = "already_full"
-            else:
-                status = "slow_or_no_fill"
-
+        
     except HTTPException as e:
         slope = 0.0
         hours_left = None
@@ -101,7 +103,7 @@ def predict_for_bin(bin_id: str, db: Session = Depends(get_db)):
         slope = 0.0
         hours_left = None
         eta = None
-        status = f"prediction_error: {str(e)}"
+        status = "prediction_error"
 
     return {
         "bin_id": bin_id,
@@ -118,15 +120,8 @@ def predict_all(db: Session = Depends(get_db)):
     results = []
 
     for b in bins:
-        try:
-            res = predict_for_bin(b.bin_id, db=db)
-            results.append(res)
-        except Exception as e:
-            results.append({
-                "bin_id": b.bin_id,
-                "status": "prediction_failed",
-                "error": str(e)
-            })
+        res = predict_for_bin(b.bin_id, db=db)
+        results.append(res)
     results.sort(key=lambda x: x.get('hours_left') if x.get('hours_left') is not None else float('inf'))
     return {"predictions": results}
 
@@ -153,7 +148,7 @@ def calculate_bin_importance_score(
     if score < 1.0 and (current_fill > 0 or slope > 0 or status == "predicting"):
         score = 1.0
     
-    return min(score, 150.0) # Cap importance score to prevent extreme outliers
+    return min(score, 150.0)
 
 @router.get("/hotspots")
 def hotspots(db: Session = Depends(get_db)):
@@ -183,7 +178,6 @@ def hotspots(db: Session = Depends(get_db)):
                 bin_metadata.append({"bin_id": b.bin_id, "latitude": float(b.latitude), "longitude": float(b.longitude), "importance_score": importance_score})
 
         except Exception as e:
-            print(f"Error processing bin {b.bin_id} for hotspots: {e}")
             pass
 
     if len(data_for_clustering) < 2:
@@ -220,9 +214,6 @@ def hotspots(db: Session = Depends(get_db)):
         avg_importance = np.mean(original_cluster_points[:, 2])
 
         bins_in_cluster = [bin_metadata[idx] for idx in cluster_points_indices]
-
-        # Use NearestNeighbors to find a "representative" bin for the cluster, if desired,
-        # or just use the average lat/lon. For "new bin locations," average is fine.
         
         hotspot_centers.append({
             "cluster_id": int(i),
@@ -254,6 +245,8 @@ def detect_patterns(db: Session = Depends(get_db)):
     patterns = defaultdict(list)
 
     for bin_id, avg_hours in per_bin_avg_hours.items():
+        if avg_hours is None:
+            continue
         if avg_hours < 12:
             patterns["very_fast_filling_bins"].append(bin_id)
         elif avg_hours < 24:

@@ -4,7 +4,7 @@ import WorkerSidebar from "../../components/WorkerSidebar";
 import API from "../../services/api";
 
 export default function AssignedTasks() {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -13,8 +13,9 @@ export default function AssignedTasks() {
     setErr("");
     setLoading(true);
     try {
-      const data = await API.get("/tasks/worker/list");
-      const assigned = data.filter(t => t.status === "assigned");
+      const resp = await API.get("/tasks/worker/list");
+      const data = resp?.data ?? resp ?? [];
+      const assigned = data.filter(t => t.status === "assigned" || t.status === "pending_verification");
       setTasks(assigned);
     } catch (e) {
       setErr(e.message || "Failed to load tasks");
@@ -26,7 +27,13 @@ export default function AssignedTasks() {
   async function completeTask(id) {
     if (!confirm("Mark this task as completed?")) return;
     try {
-      await API.post(`/tasks/${id}/complete`);
+      const res = await API.post(`/tasks/${id}/complete`);
+      const body = res?.data ?? res ?? {};
+      if (body.status === "pending_verification") {
+        alert("Task submitted. Waiting for IoT device confirmation.");
+      } else if (body.status === "completed") {
+        alert("Task marked completed.");
+      }
       await load();
     } catch (e) {
       alert(e.message || "Failed to complete task");
@@ -52,9 +59,7 @@ export default function AssignedTasks() {
             Show Map Route
           </button>
         )}
-
         {err && <div className="error">{err}</div>}
-
         {loading ? <div>Loading...</div> : (
           tasks.length === 0 ? <div>No assigned tasks right now</div> : (
             <table className="table">
@@ -65,10 +70,9 @@ export default function AssignedTasks() {
                 {tasks.map(t => (
                   <tr key={t.id}>
                     <td>{t.id}</td>
-                   <td>{t.alert?.bin_id ?? "-"}</td>
-                   <td>{t.alert?.id ?? "-"}</td>
-                   <td>{new Date(t.created_at).toLocaleString()}</td>
-
+                    <td>{t.alert?.bin_id ?? "-"}</td>
+                    <td>{t.alert?.id ?? "-"}</td>
+                    <td>{new Date(t.created_at).toLocaleString()}</td>
                     <td>
                       <button className="btn small" onClick={() => completeTask(t.id)}>Complete</button>
                     </td>

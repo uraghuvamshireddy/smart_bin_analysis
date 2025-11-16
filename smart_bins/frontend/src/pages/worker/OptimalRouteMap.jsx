@@ -3,6 +3,18 @@ import { useLocation } from "react-router-dom";
 import API from "../../services/api";
 import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+const workerIcon = new L.Icon({
+  iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+  iconSize: [35, 35],
+});
+
+const binIcon = new L.Icon({
+iconUrl:
+    "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png",  iconSize: [35, 35],
+});
+
 
 export default function OptimalRouteMap() {
   const location = useLocation();
@@ -87,17 +99,16 @@ export default function OptimalRouteMap() {
       <MapContainer center={workerPos} zoom={14} style={{ height: "100%", width: "100%" }}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {/* ✅ Worker Marker */}
-        <Marker position={workerPos}>
-          <Popup>Worker Start Point</Popup>
-        </Marker>
+        <Marker position={workerPos} icon={workerIcon}>
+  <Popup>Worker Start Point</Popup>
+</Marker>
 
-        {/* ✅ Bin Markers */}
-        {bins.map(b => (
-          <Marker key={b.bin_id} position={[b.latitude, b.longitude]}>
-            <Popup>Bin: {b.bin_id}</Popup>
-          </Marker>
-        ))}
+{bins.map(b => (
+  <Marker key={b.bin_id} position={[b.latitude, b.longitude]} icon={binIcon}>
+    <Popup>Bin: {b.bin_id}</Popup>
+  </Marker>
+))}
+
 
         {/* ✅ Road Route */}
         {route.length > 1 && <Polyline positions={route} />}
