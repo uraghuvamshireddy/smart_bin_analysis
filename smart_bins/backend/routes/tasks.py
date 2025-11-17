@@ -5,6 +5,7 @@ from models import Task, Alert, User, Bin
 from schemas import TaskCreate, TaskOut
 from auth import get_current_user, require_admin
 from datetime import datetime
+from config import USE_HARDWARE, IOT_SECRET_KEY
 
 router = APIRouter()
 
@@ -37,7 +38,7 @@ def assign_task(task: TaskCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/{task_id}/complete", response_model=TaskOut)
-def complete_task(task_id: int, user = Depends(get_current_user), 
+def complete_task(task_id: int, user = Depends(get_current_user),
                   db: Session = Depends(get_db)):
 
     task = db.query(Task).filter(Task.id == task_id).first()
@@ -47,18 +48,34 @@ def complete_task(task_id: int, user = Depends(get_current_user),
     if user.role != "worker" or user.id != task.worker_id:
         raise HTTPException(403, "Unauthorized")
 
-    task.status = "completed"
-    task.completed_at = datetime.utcnow()
+    if task.status == "completed":
+        raise HTTPException(400, "Task already completed")
 
     alert = db.query(Alert).filter(Alert.id == task.alert_id).first()
-    if alert:
-        alert.is_resolved = True
-        alert.resolved_at = datetime.utcnow()
+    if not alert:
+        raise HTTPException(404, "Associated alert not found")
 
-        bin_obj = db.query(Bin).filter(Bin.bin_id == alert.bin_id).first()
-        if bin_obj:
+    bin_obj = db.query(Bin).filter(Bin.bin_id == alert.bin_id).first()
+    if not bin_obj:
+        raise HTTPException(404, "Associated bin not found")
+
+    if USE_HARDWARE:
+        if bin_obj.current_fill_pct <= 5:
+            task.status = "completed"
+            task.completed_at = datetime.utcnow()
+            alert.is_resolved = True
+            alert.resolved_at = datetime.utcnow()
             bin_obj.current_fill_pct = 0
             bin_obj.status = "not full"
+        else:
+            raise HTTPException(400, "Bin not clean enough according to sensor. Please re-check and try again.")
+    else:
+        task.status = "completed"
+        task.completed_at = datetime.utcnow()
+        alert.is_resolved = True
+        alert.resolved_at = datetime.utcnow()
+        bin_obj.current_fill_pct = 0
+        bin_obj.status = "not full"
 
     db.commit()
     db.refresh(task)
@@ -76,4 +93,3 @@ def worker_tasks(user = Depends(get_current_user), db: Session = Depends(get_db)
         raise HTTPException(403, "Only workers")
 
     return db.query(Task).join(Alert).filter(Task.worker_id == user.id).all()
-

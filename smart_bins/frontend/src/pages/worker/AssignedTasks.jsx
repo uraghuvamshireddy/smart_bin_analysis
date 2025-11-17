@@ -15,7 +15,7 @@ export default function AssignedTasks() {
     try {
       const resp = await API.get("/tasks/worker/list");
       const data = resp?.data ?? resp ?? [];
-      const assigned = data.filter(t => t.status === "assigned" || t.status === "pending_verification");
+      const assigned = data.filter(t => t.status === "assigned");
       setTasks(assigned);
     } catch (e) {
       setErr(e.message || "Failed to load tasks");
@@ -27,16 +27,16 @@ export default function AssignedTasks() {
   async function completeTask(id) {
     if (!confirm("Mark this task as completed?")) return;
     try {
-      const res = await API.post(`/tasks/${id}/complete`);
-      const body = res?.data ?? res ?? {};
-      if (body.status === "pending_verification") {
-        alert("Task submitted. Waiting for IoT device confirmation.");
-      } else if (body.status === "completed") {
-        alert("Task marked completed.");
-      }
+      await API.post(`/tasks/${id}/complete`);
+      alert("Task marked completed.");
       await load();
     } catch (e) {
-      alert(e.message || "Failed to complete task");
+      if (e.response && e.response.status === 400 && e.response.data && e.response.data.detail === "Bin not clean enough according to sensor. Please re-check and try again.") {
+        alert("Bin is not clean enough according to sensor. Please re-check and try again.");
+      } else {
+        alert(e.message || "Failed to complete task");
+      }
+      await load();
     }
   }
 
@@ -64,7 +64,7 @@ export default function AssignedTasks() {
           tasks.length === 0 ? <div>No assigned tasks right now</div> : (
             <table className="table">
               <thead>
-                <tr><th>Task ID</th><th>Bin ID</th><th>Alert ID</th><th>Assigned At</th><th>Action</th></tr>
+                <tr><th>Task ID</th><th>Bin ID</th><th>Alert ID</th><th>Status</th><th>Assigned At</th><th>Action</th></tr>
               </thead>
               <tbody>
                 {tasks.map(t => (
@@ -72,9 +72,14 @@ export default function AssignedTasks() {
                     <td>{t.id}</td>
                     <td>{t.alert?.bin_id ?? "-"}</td>
                     <td>{t.alert?.id ?? "-"}</td>
+                    <td>{t.status}</td>
                     <td>{new Date(t.created_at).toLocaleString()}</td>
                     <td>
-                      <button className="btn small" onClick={() => completeTask(t.id)}>Complete</button>
+                      {t.status === "assigned" ? (
+                        <button className="btn small" onClick={() => completeTask(t.id)}>Complete</button>
+                      ) : (
+                        <span>{t.status}</span>
+                      )}
                     </td>
                   </tr>
                 ))}

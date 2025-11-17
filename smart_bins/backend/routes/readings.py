@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import SessionLocal
-from models import Bin, FillHistory, Alert
+from models import Bin, FillHistory, Alert, Task
 from schemas import BinReadingCreate, BinReadingOut
 from auth import get_current_user, require_admin
 from datetime import datetime, timezone
@@ -18,9 +18,9 @@ def get_db():
 
 @router.post("/", response_model=BinReadingOut)
 def create_reading(reading: BinReadingCreate, db: Session = Depends(get_db)):
-    if USE_HARDWARE:
-        if getattr(reading, "secret_key", None) != IOT_SECRET_KEY:
-            raise HTTPException(403, "Unauthorized IoT device")
+    # if USE_HARDWARE:
+    #     if getattr(reading, "secret_key", None) != IOT_SECRET_KEY:
+    #         raise HTTPException(403, "Unauthorized IoT device")
     bin_data = db.query(Bin).filter(Bin.bin_id == reading.bin_id).first()
     if not bin_data:
         raise HTTPException(status_code=404, detail="Bin not found")
@@ -36,10 +36,8 @@ def create_reading(reading: BinReadingCreate, db: Session = Depends(get_db)):
                 created_at=datetime.now(timezone.utc)
             )
             db.add(new_alert)
-    elif new_val <= 80:
-        if alert:
-            alert.is_resolved = True
-            alert.resolved_at = datetime.now(timezone.utc)
+    
+
     new_reading = FillHistory(bin_id=reading.bin_id, fill_pct=new_val, ts=datetime.now(timezone.utc))
     db.add(new_reading)
     db.commit()
