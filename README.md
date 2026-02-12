@@ -5,6 +5,9 @@ API_PORT
 BACKEND_URL
 SECRET_KEY
 
+create .env in frontend
+VITE_API_URL=(backend URL)
+
 To start backend go to backend folder on console then python -m venv .venv then venv\Scripts\Activate.ps1 then uvicorn main:app --reload backend starts.
 If getting error check if all dependencies are downloaded prperly and system configuration also.
 
