@@ -2,9 +2,8 @@ import React, { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import API from "../services/api"; // Assuming API service is in ../../services/api
+import API from "../services/api";
 
-// Define custom icons for different fill levels
 const ICON_GREEN = new L.Icon({
   iconUrl:
     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png",
@@ -38,7 +37,7 @@ const ICON_RED = new L.Icon({
   iconAnchor: [12, 41],
 });
 
-const ICON_BLUE = new L.Icon({ // For user's current location
+const ICON_BLUE = new L.Icon({ 
   iconUrl:
     "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
   iconRetinaUrl:
@@ -49,7 +48,6 @@ const ICON_BLUE = new L.Icon({ // For user's current location
   iconAnchor: [12, 41],
 });
 
-// Helper component to fit map bounds to markers
 function FitBounds({ bounds }) {
   const map = useMap();
   useEffect(() => {
@@ -72,7 +70,6 @@ export default function UserMap() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Function to fetch bins (can be called repeatedly)
   const fetchBins = async () => {
     try {
       const res = await API.get("/bins/");
@@ -90,12 +87,11 @@ export default function UserMap() {
     }
   };
 
-  // ✅ Get user's current location continuously with watchPosition
   useEffect(() => {
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         setUserLocation([pos.coords.latitude, pos.coords.longitude]);
-        setLoading(false); // Location found, stop initial loading indicator
+        setLoading(false); 
       },
       (err) => {
         console.error("Error getting user location:", err);
@@ -109,29 +105,24 @@ export default function UserMap() {
       }
     );
 
-    // Cleanup function to clear watchPosition when component unmounts
     return () => navigator.geolocation.clearWatch(watchId);
-  }, []); // Empty dependency array means this runs once on mount
+  }, []); 
 
-  // ✅ Get bins periodically
   useEffect(() => {
-    fetchBins(); // Fetch immediately on mount
+    fetchBins(); 
 
-    const intervalId = setInterval(fetchBins, 30000); // Fetch every 30 seconds
+    const intervalId = setInterval(fetchBins, 30000); 
 
-    // Cleanup function to clear interval when component unmounts
     return () => clearInterval(intervalId);
-  }, []); // Empty dependency array means this runs once on mount
+  }, []); 
 
-  // Calculate nearest bin and route when userLocation or bins change
   useEffect(() => {
     if (!userLocation || bins.length === 0) {
-      // If we have userLocation but no bins, loading might be misleading
       if (userLocation && bins.length === 0) setLoading(false);
       return;
     }
 
-    setLoading(true); // Indicate that route is being calculated
+    setLoading(true); 
     let minDistance = Infinity;
     let closestBin = null;
 
@@ -172,19 +163,17 @@ export default function UserMap() {
           setRoute([]);
         }
       } else {
-        setRoute([]); // Clear route if no bins or no closest bin found
+        setRoute([]); 
       }
-      setLoading(false); // Route calculation finished
+      setLoading(false); 
     }
 
     fetchRoute();
-  }, [userLocation, bins]); // This useEffect depends on userLocation and bins
+  }, [userLocation, bins]); 
 
-  // ... (distance, iconFor, allMapPoints, and return JSX remain the same) ...
   const distance = (p1, p2) =>
     Math.hypot(p1.lat - p2.latitude, p1.lng - p2.longitude);
 
-  // Determine icon based on fill percentage
   const iconFor = (fillPct) => {
     const pct = Number(fillPct ?? 0);
     if (pct >= 80) return ICON_RED;
@@ -192,7 +181,6 @@ export default function UserMap() {
     return ICON_GREEN;
   };
 
-  // Prepare bounds for FitBounds component
   const allMapPoints = [];
   if (userLocation) allMapPoints.push(userLocation);
   bins.forEach(b => {
@@ -220,17 +208,14 @@ export default function UserMap() {
         >
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-          {/* Fit map bounds to all points */}
           {allMapPoints.length > 0 && <FitBounds bounds={allMapPoints} />}
 
-          {/* User's current location marker */}
           {userLocation && (
             <Marker position={userLocation} icon={ICON_BLUE}>
               <Popup>Your Current Location</Popup>
             </Marker>
           )}
 
-          {/* Bin Markers */}
           {Array.isArray(bins) && bins.map((b) => {
             const lat = Number(b.latitude);
             const lon = Number(b.longitude);
@@ -255,11 +240,9 @@ export default function UserMap() {
             return null;
           })}
 
-          {/* Shortest path to nearest bin */}
           {route.length > 1 && <Polyline positions={route} color="blue" weight={5} />}
         </MapContainer>
 
-        {/* Map Legend */}
         <div className="map-legend" style={{
           position: "absolute",
           right: 12,

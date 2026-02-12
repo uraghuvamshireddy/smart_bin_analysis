@@ -29,6 +29,8 @@ export default function AdminDashboard() {
   const COLORS = ["#1976d2", "#ff9800", "#e91e63", "#8bc34a", "#9c27b0", "#009688", "#ff5722", "#607d8b"]; // Added more colors
 
   useEffect(() => {
+    console.time("Dashboard Load Time");
+
     const loadData = async () => {
       setLoading(true);
       try {
@@ -41,7 +43,6 @@ export default function AdminDashboard() {
           longitude: bin.longitude,
           capacity_litres: bin.capacity_litres,
         }));
-        // FIX: Create a copy before sorting
         setBins([...mappedBins].sort((a, b) => b.fillLevel - a.fillLevel).slice(0, 10).map(b => ({
           ...b,
           binId: `Bin ${b.binId.slice(-4)}`
@@ -77,7 +78,6 @@ export default function AdminDashboard() {
         const aftResp = await API.get("/analytics/average-fill-time");
         setAverageFillTime(aftResp?.overall_avg_hours);
 
-        // ML Endpoints
         const hsResp = await API.get("/ml/hotspots");
         setHotspotCenters((hsResp && hsResp.hotspot_centers) || []);
 
@@ -87,7 +87,6 @@ export default function AdminDashboard() {
         const bdResp = await API.get("/analytics/bin-distribution");
         setBinDistribution(bdResp || {});
 
-        // NEW: Pattern Detection
         const dpResp = await API.get("/ml/patterns");
         setDetectedPatterns((dpResp && dpResp.patterns) || []);
 
@@ -95,6 +94,7 @@ export default function AdminDashboard() {
         console.error("Dashboard failed to load data:", error);
       } finally {
         setLoading(false);
+        console.timeEnd("Dashboard Load Time");
       }
     };
     loadData();
@@ -237,8 +237,8 @@ export default function AdminDashboard() {
 
           <div className="chart-card">
             <div className="chart-title">Predicted Next Pickup Times </div>
-            <p className="chart-description">Machine learning predictions for when each bin is estimated to reach full capacity and require pickup, based on its fill history. (Showing top 5)</p>
-            <div className="table-container scrollable-table"> {/* Added scrollable-table class */}
+            <p className="chart-description">Machine learning predictions for when each bin is estimated to reach full capacity and require pickup, based on its fill history.</p>
+            <div className="table-container scrollable-table"> 
               <table className="table">
                 <thead>
                   <tr>
@@ -259,7 +259,7 @@ export default function AdminDashboard() {
                             ? moment(pred.eta_iso).format('MMM D, h:mm A')
                             : pred.status === "already_full"
                               ? "Now"
-                              : "N/A" // Display N/A for 'slow_or_no_fill', 'no_sensor_data', or prediction errors
+                              : "N/A" 
                           }
                         </td>
                         <td>
@@ -325,7 +325,7 @@ export default function AdminDashboard() {
                 </thead>
                 <tbody>
                   {overflowIncidents.length > 0 ? (
-                    overflowIncidents.slice(0, 5).map((incident, index) => ( // Limiting to 5 rows
+                    overflowIncidents.slice(0, 5).map((incident, index) => ( 
                       <tr key={index}>
                         <td>{`Bin ${incident.bin_id.slice(-4)}`}</td>
                         <td>{moment(incident.timestamp).format('MMM D, h:mm A')}</td>
@@ -343,7 +343,6 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* NEW: Detected Patterns Card */}
           <div className="chart-card" style={{ gridColumn: 'span 1' }}>
             <div className="chart-title">Detected Bin Patterns </div>
             <p className="chart-description">Identifies general patterns in bin usage based on historical fill data, helping categorize bins for strategic planning. (Showing 5 examples)</p>

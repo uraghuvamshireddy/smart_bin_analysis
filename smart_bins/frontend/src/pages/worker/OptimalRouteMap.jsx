@@ -24,7 +24,6 @@ export default function OptimalRouteMap() {
   const [workerPos, setWorkerPos] = useState(null);
   const [route, setRoute] = useState([]);
 
-  // ✅ Get worker location
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
       pos => {
@@ -34,7 +33,6 @@ export default function OptimalRouteMap() {
     );
   }, []);
 
-  // ✅ Get bins assigned
   useEffect(() => {
     async function load() {
       const all = await API.get("/bins/");
@@ -44,7 +42,6 @@ export default function OptimalRouteMap() {
     load();
   }, [binIds]);
 
-  // ✅ Compute optimized + real road route
   useEffect(() => {
     if (!workerPos || bins.length === 0) return;
 
@@ -72,7 +69,6 @@ export default function OptimalRouteMap() {
     fetchRoute();
   }, [workerPos, bins]);
 
-  // ✅ Simple nearest-neighbor to sort bins
   const nearestOrder = (start, bins) => {
     let order = [start];
     let remaining = [...bins];
@@ -110,7 +106,6 @@ export default function OptimalRouteMap() {
 ))}
 
 
-        {/* ✅ Road Route */}
         {route.length > 1 && <Polyline positions={route} />}
       </MapContainer>
     </div>

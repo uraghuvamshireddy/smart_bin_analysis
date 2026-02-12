@@ -7,7 +7,6 @@ BINS_ENDPOINT = f"{BASE_URL}/bins/"
 READINGS_ENDPOINT = f"{BASE_URL}/readings/"
 
 SLEEP_BETWEEN_CYCLES = 5 
-
 def fetch_bins():
     try:
         r = requests.get(BINS_ENDPOINT, timeout=5)
@@ -42,6 +41,7 @@ def simulate_once():
 
     for b in bins:
         bin_id = b.get("bin_id") or b.get("bin_id") 
+        
         current = b.get("current_fill_pct", 0)
 
         if current is None:

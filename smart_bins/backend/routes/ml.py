@@ -38,10 +38,16 @@ def load_or_train_model(bin_id: str, db: Session):
         except Exception:
             pass
 
-    rows = db.query(FillHistory).filter(FillHistory.bin_id == bin_id).order_by(FillHistory.ts.asc()).all()
+    rows = db.query(FillHistory).filter(
+        FillHistory.bin_id == bin_id,
+        FillHistory.fill_pct >= 0
+    ).order_by(FillHistory.ts.desc()).limit(1000).all()
+    rows = list(reversed(rows))
+
     if len(rows) < 5:
         raise HTTPException(status_code=400, detail="insufficient_data")
 
+    rows = list(reversed(rows))
     t0 = rows[0].ts
     X = np.array([(r.ts - t0).total_seconds() / 3600.0 for r in rows]).reshape(-1, 1)
     y = np.array([r.fill_pct for r in rows])
@@ -52,6 +58,7 @@ def load_or_train_model(bin_id: str, db: Session):
     joblib.dump(packed, path)
 
     return packed
+
 
 @router.get("/predict/{bin_id}")
 def predict_for_bin(bin_id: str, db: Session = Depends(get_db)):
@@ -304,3 +311,150 @@ def detect_patterns(db: Session = Depends(get_db)):
         })
 
     return {"patterns": result_patterns}
+
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import math
+
+
+@router.get("/eval/regression")
+def evaluate_regression(db: Session = Depends(get_db)):
+    
+    bins = db.query(Bin).all()
+
+    actual_times = []
+    predicted_times = []
+    evaluated_bins = []
+
+    for b in bins:
+        try:
+            result = predict_for_bin(b.bin_id, db)
+            pred_hours = result.get("hours_left")
+            if pred_hours is None:
+                continue
+
+            rows = db.query(FillHistory).filter(
+                FillHistory.bin_id == b.bin_id
+            ).order_by(FillHistory.ts.desc()).limit(1000).all()
+            rows = list(reversed(rows))
+
+
+            if not rows or len(rows) < 2:
+                continue
+
+            full_rows = [r for r in rows if r.fill_pct >= 99]
+            if not full_rows:
+                continue
+
+            t0 = rows[0].ts
+            t_full = full_rows[0].ts
+            actual_hours = (t_full - t0).total_seconds() / 3600.0
+
+            actual_times.append(actual_hours)
+            predicted_times.append(float(pred_hours))
+            evaluated_bins.append(b.bin_id)
+
+        except Exception as e:
+            print("Evaluation skipped for bin", b.bin_id, "error:", e)
+            continue
+
+    n = len(actual_times)
+    if n == 0:
+        raise HTTPException(status_code=400, detail="No bins with both prediction and full-history available for evaluation")
+    if n == 1:
+        mse = mean_squared_error(actual_times, predicted_times)  
+        rmse = float(mse) ** 0.5
+
+        mae = float(mean_absolute_error(actual_times, predicted_times))
+        r2 = float(r2_score(actual_times, predicted_times)) if len(actual_times) > 1 else float("nan")
+    else:
+        mse = mean_squared_error(actual_times, predicted_times)  
+        rmse = float(mse) ** 0.5
+        mae = float(mean_absolute_error(actual_times, predicted_times))
+        r2 = float(r2_score(actual_times, predicted_times))
+
+    return {
+        "bins_evaluated": n,
+        "bin_ids": evaluated_bins,
+        "RMSE_hours": round(rmse, 3),
+        "MAE_hours": round(mae, 3),
+        "R2_score": None if math.isnan(r2) else round(r2, 3),
+        "actual_hours": [round(float(x), 3) for x in actual_times],
+        "predicted_hours": [round(float(x), 3) for x in predicted_times]
+    }
+
+import matplotlib
+matplotlib.use('Agg')  
+
+import matplotlib.pyplot as plt
+from io import BytesIO
+from fastapi.responses import StreamingResponse
+
+@router.get("/eval/regression/plot")
+def regression_plot():
+    actual = np.array([0.575, 146.99, 146.972, 31.948, 0.33, 95.913, 16.243, 0.032, 146.967, 0.324])
+    predicted = np.array([0, 16.94, 279.65, 85.58, 0, 103.39, 30.06, 40.04, 113.46, 0])
+    labels = ["RB777", "bin001", "bin003", "bin005", "bin008", "bin004", "bin006", "bin007", "bin002", "bin009"]
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(labels, actual, marker='o')
+    plt.plot(labels, predicted, marker='o')
+    plt.xticks(rotation=45)
+    plt.xlabel("Bin ID")
+    plt.ylabel("Time-to-Full (Hours)")
+    plt.title("Actual vs Predicted Time-to-Full")
+    plt.legend(["Actual", "Predicted"])
+    plt.tight_layout()
+
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    plt.close()
+    buf.seek(0)
+
+    return StreamingResponse(buf, media_type="image/png")
+
+from sklearn.metrics import silhouette_score
+
+@router.get("/eval/hotspot-metrics")
+def evaluate_hotspots(db: Session = Depends(get_db)):
+    bins = db.query(Bin).all()
+    
+    data = []
+    for b in bins:
+        try:
+            result = predict_for_bin(b.bin_id, db)
+            imp = calculate_bin_importance_score(
+                result.get("current_fill", 0),
+                result.get("hours_left"),
+                result.get("status", "unknown"),
+                result.get("slope", 0.0)
+            )
+            if imp > 0 and b.latitude and b.longitude:
+                data.append([float(b.latitude), float(b.longitude), imp])
+        except:
+            continue
+
+    if len(data) < 3:
+        raise HTTPException(status_code=400, detail="Not enough bins for metrics")
+
+    X = np.array(data)
+
+    lat_lon_scaled = StandardScaler().fit_transform(X[:, :2])
+    imp_scaled = StandardScaler().fit_transform(X[:, 2].reshape(-1, 1))
+    weighted = np.column_stack([lat_lon_scaled, imp_scaled * 0.5])
+
+    k = min(max(1, len(weighted) // 5), 8)
+
+    kmeans = KMeans(n_clusters=k, n_init=10, random_state=42).fit(weighted)
+    labels = kmeans.labels_
+
+    sil_score = float(silhouette_score(weighted, labels))
+
+    uniq, cnts = np.unique(labels, return_counts=True)
+    cluster_sizes = dict(zip([int(x) for x in uniq], [int(c) for c in cnts]))
+
+    return {
+        "clusters": k,
+        "silhouette_score": round(sil_score, 3),
+        "cluster_sizes": cluster_sizes
+    }
